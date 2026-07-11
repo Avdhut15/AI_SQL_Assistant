@@ -26,6 +26,15 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# OpenAI configuration (all tunable via environment variables)
+# ---------------------------------------------------------------------------
+
+OPENAI_MODEL       = os.getenv("OPENAI_MODEL",       "gpt-4o-mini")
+OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
+OPENAI_MAX_TOKENS  = int(os.getenv("OPENAI_MAX_TOKENS",    "768"))
+
+
+# ---------------------------------------------------------------------------
 # SQL keywords & functions (used by the tuner)
 # ---------------------------------------------------------------------------
 
@@ -212,7 +221,7 @@ _tuner = SQLOutputTuner()
 # OpenAI helper
 # ---------------------------------------------------------------------------
 
-# Singleton client — constructed once when the module loads (if a key exists)
+# Lazily initialised — created on first use if an API key is present
 _openai_client: openai.OpenAI | None = None
 
 
@@ -227,37 +236,37 @@ def _get_openai_client() -> openai.OpenAI:
     return _openai_client
 
 
+_SYSTEM_PROMPT = (
+    "You are an expert SQL developer. "
+    "Convert the user's natural-language description into a single, valid SQL query.\n"
+    "Rules:\n"
+    "  1. Output ONLY the raw SQL statement — no explanations, no markdown fences.\n"
+    "  2. Use UPPERCASE for ALL SQL keywords (SELECT, FROM, WHERE, etc.).\n"
+    "  3. Indent each major clause (FROM, WHERE, GROUP BY, ORDER BY, HAVING, LIMIT) "
+    "with exactly 4 spaces on its own line.\n"
+    "  4. Infer sensible, snake_case table and column names from the description.\n"
+    "  5. Always end the statement with a semicolon.\n"
+    "  6. Support SELECT, WHERE, GROUP BY, ORDER BY, HAVING, LIMIT, COUNT, SUM, AVG, "
+    "MAX, MIN, JOIN, UNION, CASE/WHEN/THEN/ELSE/END.\n"
+    "  7. For ambiguous queries prefer a safe SELECT over destructive statements.\n"
+)
+
+
 def _generate_with_openai(natural_query: str) -> str:
     """
     Call the OpenAI Chat Completions API to convert a natural-language query
     into a well-formatted SQL statement.
     """
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     client = _get_openai_client()
 
-    system_prompt = (
-        "You are an expert SQL developer. "
-        "Convert the user's natural-language description into a single, valid SQL query.\n"
-        "Rules:\n"
-        "  1. Output ONLY the raw SQL statement — no explanations, no markdown fences.\n"
-        "  2. Use UPPERCASE for ALL SQL keywords (SELECT, FROM, WHERE, etc.).\n"
-        "  3. Indent each major clause (FROM, WHERE, GROUP BY, ORDER BY, HAVING, LIMIT) "
-        "with exactly 4 spaces on its own line.\n"
-        "  4. Infer sensible, snake_case table and column names from the description.\n"
-        "  5. Always end the statement with a semicolon.\n"
-        "  6. Support SELECT, WHERE, GROUP BY, ORDER BY, HAVING, LIMIT, COUNT, SUM, AVG, "
-        "MAX, MIN, JOIN, UNION, CASE/WHEN/THEN/ELSE/END.\n"
-        "  7. For ambiguous queries prefer a safe SELECT over destructive statements.\n"
-    )
-
     response = client.chat.completions.create(
-        model=model,
+        model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user",   "content": natural_query},
         ],
-        temperature=0.1,
-        max_tokens=768,
+        temperature=OPENAI_TEMPERATURE,
+        max_tokens=OPENAI_MAX_TOKENS,
     )
 
     raw_sql = response.choices[0].message.content.strip()
@@ -268,20 +277,55 @@ def _generate_with_openai(natural_query: str) -> str:
 # Rule-based fallback
 # ---------------------------------------------------------------------------
 
-# Set of known entity nouns used by _extract_table; used to guard the city
-# matcher so that "FROM employees" does not generate city = 'Employees'.
-_ENTITY_NOUNS = {
-    "employee", "employees", "staff", "worker", "workers",
-    "customer", "customers", "client", "clients",
-    "order", "orders", "product", "products", "item", "items",
-    "student", "students", "user", "users",
-    "sale", "sales", "invoice", "invoices",
-    "department", "departments", "transaction", "transactions",
-    "record", "records", "report", "reports",
-    "account", "accounts", "payment", "payments",
-    "project", "projects", "supplier", "suppliers",
-    "vendor", "vendors",
+# Single source-of-truth: word → canonical table name.
+# Keys are all recognised entity synonyms; values are the target table names.
+_ENTITY_MAP: dict[str, str] = {
+    "employee":     "employees",
+    "employees":    "employees",
+    "staff":        "employees",
+    "worker":       "employees",
+    "workers":      "employees",
+    "customer":     "customers",
+    "customers":    "customers",
+    "client":       "clients",
+    "clients":      "clients",
+    "order":        "orders",
+    "orders":       "orders",
+    "product":      "products",
+    "products":     "products",
+    "item":         "items",
+    "items":        "items",
+    "student":      "students",
+    "students":     "students",
+    "user":         "users",
+    "users":        "users",
+    "sale":         "sales",
+    "sales":        "sales",
+    "invoice":      "invoices",
+    "invoices":     "invoices",
+    "department":   "departments",
+    "departments":  "departments",
+    "transaction":  "transactions",
+    "transactions": "transactions",
+    "record":       "records",
+    "records":      "records",
+    "report":       "reports",
+    "reports":      "reports",
+    "account":      "accounts",
+    "accounts":     "accounts",
+    "payment":      "payments",
+    "payments":     "payments",
+    "project":      "projects",
+    "projects":     "projects",
+    "supplier":     "suppliers",
+    "suppliers":    "suppliers",
+    "vendor":       "vendors",
+    "vendors":      "vendors",
 }
+
+# Derived set used to guard the city-name matcher so that recognised entity
+# words (e.g. "Employees") are never mistaken for city names.
+_ENTITY_NOUNS: frozenset[str] = frozenset(_ENTITY_MAP.keys())
 
 
 class RuleBasedSQLGenerator:
@@ -359,52 +403,9 @@ class RuleBasedSQLGenerator:
 
     def _extract_table(self, q: str) -> str:
         """Guess the table name from entity nouns present in the query."""
-        entity_map = {
-            "employee":     "employees",
-            "employees":    "employees",
-            "staff":        "employees",
-            "worker":       "employees",
-            "workers":      "employees",
-            "customer":     "customers",
-            "customers":    "customers",
-            "client":       "clients",
-            "clients":      "clients",
-            "order":        "orders",
-            "orders":       "orders",
-            "product":      "products",
-            "products":     "products",
-            "item":         "items",
-            "items":        "items",
-            "student":      "students",
-            "students":     "students",
-            "user":         "users",
-            "users":        "users",
-            "sale":         "sales",
-            "sales":        "sales",
-            "invoice":      "invoices",
-            "invoices":     "invoices",
-            "department":   "departments",
-            "departments":  "departments",
-            "transaction":  "transactions",
-            "transactions": "transactions",
-            "record":       "records",
-            "records":      "records",
-            "report":       "reports",
-            "reports":      "reports",
-            "account":      "accounts",
-            "accounts":     "accounts",
-            "payment":      "payments",
-            "payments":     "payments",
-            "project":      "projects",
-            "projects":     "projects",
-            "supplier":     "suppliers",
-            "suppliers":    "suppliers",
-            "vendor":       "vendors",
-            "vendors":      "vendors",
-        }
         for word in re.findall(r"[a-z]+", q):
-            if word in entity_map:
-                return entity_map[word]
+            if word in _ENTITY_MAP:
+                return _ENTITY_MAP[word]
         return "records"
 
     def _extract_conditions(self, q: str, original_query: str) -> str:
@@ -573,8 +574,6 @@ def generate_sql(natural_query: str) -> dict:
     """
     if not natural_query or not natural_query.strip():
         return {"error": "Query cannot be empty."}
-
-    natural_query = natural_query.strip()
 
     api_key = os.getenv("OPENAI_API_KEY", "")
     if api_key:

@@ -6,9 +6,13 @@
 'use strict';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const API_URL     = '/generate';
-const MAX_HISTORY = 8;
-const CHAR_LIMIT  = 1000;
+const API_URL          = '/generate';
+const MAX_HISTORY      = 8;
+// NOTE: CHAR_LIMIT must match MAX_QUERY_LENGTH in app.py (default: 1000)
+const CHAR_LIMIT       = 1000;
+const DEFAULT_METHOD   = 'rule-based';
+const TOAST_DURATION   = 3000; // ms before a toast auto-dismisses
+const COPY_RESET_DELAY = 2000; // ms before the Copy button resets
 
 const SQL_KEYWORDS = [
   'SELECT','FROM','WHERE','AND','OR','NOT','IN','IS','NULL','LIKE',
@@ -51,7 +55,7 @@ const toastContainer    = document.getElementById('toastContainer');
 // Named `queryHistory` to avoid shadowing the browser's built-in window.history.
 let queryHistory = [];
 let lastSQL      = '';
-let lastMethod   = 'rule-based';
+let lastMethod   = DEFAULT_METHOD;
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -255,7 +259,7 @@ async function copySQL() {
     setTimeout(() => {
       copyBtn.innerHTML = '⎘ Copy';
       copyBtn.classList.remove('copied');
-    }, 2000);
+    }, COPY_RESET_DELAY);
   } catch {
     showToast('Copy failed — please select and copy manually', 'error');
   }
@@ -265,7 +269,7 @@ async function copySQL() {
 function clearAll() {
   queryInput.value = '';
   lastSQL          = '';
-  lastMethod       = 'rule-based';
+  lastMethod       = DEFAULT_METHOD;
   charCount.textContent = `0 / ${CHAR_LIMIT}`;
   charCount.classList.remove('warning', 'danger');
   hideError();
@@ -321,7 +325,7 @@ function restoreHistory(index) {
   queryInput.value = entry.query;
   handleInputChange();
   lastSQL    = entry.sql;
-  lastMethod = entry.method || 'rule-based';
+  lastMethod = entry.method || DEFAULT_METHOD;
   displayResult(entry.sql, lastMethod);
   queryInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
@@ -338,5 +342,5 @@ function showToast(message, type = 'success') {
   setTimeout(() => {
     toast.style.animation = 'toastOut 0.3s ease forwards';
     toast.addEventListener('animationend', () => toast.remove(), { once: true });
-  }, 3000);
+  }, TOAST_DURATION);
 }

@@ -6,6 +6,7 @@ Flask application entry point for AI SQL Assistant.
 
 import os
 import logging
+from datetime import datetime
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -13,6 +14,13 @@ from services.sql_generator import generate_sql
 
 # Load environment variables from .env (no-op if the file is absent)
 load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+APP_NAME        = "AI SQL Assistant"
+MAX_QUERY_LENGTH = int(os.getenv("MAX_QUERY_LENGTH", 1000))
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -35,7 +43,7 @@ logger = logging.getLogger(__name__)
 @app.route("/", methods=["GET"])
 def index():
     """Serve the main HTML page."""
-    return render_template("index.html")
+    return render_template("index.html", year=datetime.now().year)
 
 
 @app.route("/generate", methods=["POST"])
@@ -55,8 +63,10 @@ def generate():
         if not natural_query:
             return jsonify({"error": "The 'query' field is required and cannot be empty."}), 400
 
-        if len(natural_query) > 1000:
-            return jsonify({"error": "Query is too long. Please keep it under 1000 characters."}), 400
+        if len(natural_query) > MAX_QUERY_LENGTH:
+            return jsonify({
+                "error": f"Query is too long. Please keep it under {MAX_QUERY_LENGTH} characters."
+            }), 400
 
         result = generate_sql(natural_query)
 
@@ -74,7 +84,7 @@ def generate():
 @app.route("/health", methods=["GET"])
 def health():
     """Simple health-check endpoint."""
-    return jsonify({"status": "ok", "service": "AI SQL Assistant"}), 200
+    return jsonify({"status": "ok", "service": APP_NAME}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +92,6 @@ def health():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
+    port  = int(os.getenv("PORT", 5000))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     app.run(host="0.0.0.0", port=port, debug=debug)
