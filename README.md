@@ -129,8 +129,3 @@ Find average salary by department
 - **Frontend:** Vanilla HTML · CSS · JavaScript
 - **Design:** Refined dark theme · Green / Grey / Black · JetBrains Mono · Inter
 
----
-
-## 📄 License
-
-MIT © 2026 [invo-coder19](https://github.com/invo-coder19)
