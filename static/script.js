@@ -18,8 +18,9 @@ const {
   useEffect,
   useRef,
   useCallback,
-  createPortal,
 } = React;
+
+const { createPortal } = ReactDOM;
 
 /** htm's `html` tag — transforms tagged template literals into React.createElement calls */
 const html = htm.bind(React.createElement);
@@ -87,7 +88,6 @@ function highlightSQL(sql) {
   const kwPat = new RegExp(`\\b(${SQL_KEYWORDS.join('|')})\\b`, 'gi');
   h = h.replace(kwPat, (m) => `<span class="kw">${m.toUpperCase()}</span>`);
 
-  h = h.replace(/([=<>!]+|[*])/g, '<span class="op">$1</span>');
   return h;
 }
 
@@ -112,7 +112,7 @@ function validateSQL(sql) {
     },
     {
       id: 'uppercase',
-      pass: !/select|from|where|order|group/i.test(sql.replace(/'[^']*'/g, '')),
+      pass: !/select|from|where|order|group/.test(sql.replace(/'[^']*'/g, '')),
       label: 'Keywords are uppercase',
     },
   ];
@@ -220,8 +220,8 @@ function OutputCard({ sql, method, loading }) {
     }
   }, [sql]);
 
-  const methodLabel = method === 'openai' ? '✦ OpenAI' : '⚙ Rule-based';
-  const methodClass = method === 'openai' ? 'ai' : 'rule';
+  const methodLabel = method === 'gemini' ? '✦ Gemini' : '⚙ Rule-based';
+  const methodClass = method === 'gemini' ? 'ai' : 'rule';
 
   // ── Empty / loading placeholder ──
   if (!sql) {
@@ -239,8 +239,8 @@ function OutputCard({ sql, method, loading }) {
         <div class="output-empty">
           ${loading
             ? html`
-                <div class="spinner" style="width:24px;height:24px;border-width:2.5px"></div>
-                <p class="empty-text" style="margin-top:12px">Generating SQL…</p>
+                <div class="spinner" style=${{ width: '24px', height: '24px', borderWidth: '2.5px' }}></div>
+                <p class="empty-text" style=${{ marginTop: '12px' }}>Generating SQL…</p>
               `
             : html`
                 <div class="empty-icon">🗄️</div>
@@ -309,7 +309,7 @@ function Header() {
         <div class="brand-logo" aria-hidden="true">🗄️</div>
         <span class="brand-name">AI SQL Assistant</span>
       </div>
-      <span class="brand-tag">Powered by OpenAI</span>
+      <span class="brand-tag">Powered by Gemini</span>
     </header>
   `;
 }
@@ -330,7 +330,7 @@ function Hero() {
         <span class="badge">⚡ Instant Generation</span>
         <span class="badge">✔ Syntax Validation</span>
         <span class="badge">⎘ One-click Copy</span>
-        <span class="badge">◈ OpenAI + Offline</span>
+        <span class="badge">◈ Gemini + Offline</span>
       </div>
     </section>
   `;
@@ -593,7 +593,7 @@ function App() {
         <span aria-hidden="true">🗄️</span>
         <span>AI SQL Assistant</span>
         <span class="footer-sep">·</span>
-        <span>Built with Flask &amp; OpenAI</span>
+        <span>Built with Flask &amp; Gemini</span>
         <span class="footer-sep">·</span>
         <span>MIT © ${year}</span>
       </footer>
@@ -605,8 +605,37 @@ function App() {
 
 // ─── Mount ────────────────────────────────────────────────────────────────────
 const rootEl = document.getElementById('root');
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, info: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    console.error("ErrorBoundary caught an error", error, info);
+    this.setState({ info });
+  }
+  render() {
+    if (this.state.hasError) {
+      return html`
+        <div style=${{ padding: '20px', color: 'red', background: '#fee', margin: '20px', borderRadius: '8px', border: '1px solid red' }}>
+          <h2>UI Crash Detected</h2>
+          <p>Please share this error with the AI assistant so it can fix the bug:</p>
+          <pre style=${{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#fff', padding: '10px' }}>${this.state.error && this.state.error.toString()}</pre>
+          <pre style=${{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#fff', padding: '10px' }}>${this.state.info && this.state.info.componentStack}</pre>
+        </div>
+      `;
+    }
+    return this.props.children;
+  }
+}
+
+// Render the application with ErrorBoundary
+const root = ReactDOM.createRoot(document.getElementById('root'));
 if (rootEl) {
-  ReactDOM.createRoot(rootEl).render(html`<${App} />`);
+  root.render(html`<${ErrorBoundary}><${App} /></${ErrorBoundary}>`);
 } else {
   console.error('[AI SQL Assistant] #root element not found — cannot mount React app.');
 }

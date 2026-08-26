@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="AI SQL Assistant – Convert plain English into executable SQL queries instantly using AI." />
-  <meta name="keywords" content="AI, SQL, Natural Language, Query Generator, Flask, OpenAI" />
+  <meta name="keywords" content="AI, SQL, Natural Language, Query Generator, Flask, Gemini" />
   <title>AI SQL Assistant – Natural Language to SQL</title>
 
   <!-- Fonts -->
@@ -37,11 +37,11 @@
 
   <!-- Flask template data exposed to JS -->
   <script>
-    window.__APP_CONFIG__ = { year: {{ year }} };
+    window.__APP_CONFIG__ = { year: "{{ year }}" };
   </script>
 
   <!-- Main app — plain JS, no transpilation required -->
-  <script src="{{ url_for('static', filename='script.js') }}"></script>
+  <script src="{{ url_for('static', filename='script.js') }}?v=2"></script>
 
 </body>
 </html>
