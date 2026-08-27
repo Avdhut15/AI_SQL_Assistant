@@ -9,12 +9,6 @@
 
 ---
 
-## 🖼️ Preview
-
-![AI SQL Assistant Preview](screenshots/preview.png)
-
----
-
 ## ✨ Features
 
 | Feature | Description |
