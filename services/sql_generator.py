@@ -20,7 +20,7 @@ Output is post-processed by SQLOutputTuner which:
 import os
 import re
 import logging
-import openai
+import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 # OpenAI configuration (all tunable via environment variables)
 # ---------------------------------------------------------------------------
 
-OPENAI_MODEL       = os.getenv("OPENAI_MODEL",       "gpt-4o-mini")
-OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0.1"))
-OPENAI_MAX_TOKENS  = int(os.getenv("OPENAI_MAX_TOKENS",    "768"))
+GEMINI_MODEL       = os.getenv("GEMINI_MODEL",       "gemini-3.1-flash-lite")
+GEMINI_TEMPERATURE = float(os.getenv("GEMINI_TEMPERATURE", "0.1"))
+GEMINI_MAX_TOKENS  = int(os.getenv("GEMINI_MAX_TOKENS",    "768"))
 
 
 # ---------------------------------------------------------------------------
@@ -218,22 +218,19 @@ _tuner = SQLOutputTuner()
 
 
 # ---------------------------------------------------------------------------
-# OpenAI helper
+# Gemini helper
 # ---------------------------------------------------------------------------
 
-# Lazily initialised — created on first use if an API key is present
-_openai_client: openai.OpenAI | None = None
+_gemini_configured = False
 
-
-def _get_openai_client() -> openai.OpenAI:
-    """Return (or lazily create) the module-level OpenAI client."""
-    global _openai_client
-    if _openai_client is None:
-        api_key = os.getenv("OPENAI_API_KEY", "")
+def _ensure_gemini_configured():
+    global _gemini_configured
+    if not _gemini_configured:
+        api_key = os.getenv("GEMINI_API_KEY", "")
         if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable is not set.")
-        _openai_client = openai.OpenAI(api_key=api_key)
-    return _openai_client
+            raise ValueError("GEMINI_API_KEY environment variable is not set.")
+        genai.configure(api_key=api_key)
+        _gemini_configured = True
 
 
 _SYSTEM_PROMPT = (
@@ -252,24 +249,24 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _generate_with_openai(natural_query: str) -> str:
+def _generate_with_gemini(natural_query: str) -> str:
     """
-    Call the OpenAI Chat Completions API to convert a natural-language query
+    Call the Gemini API to convert a natural-language query
     into a well-formatted SQL statement.
     """
-    client = _get_openai_client()
-
-    response = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user",   "content": natural_query},
-        ],
-        temperature=OPENAI_TEMPERATURE,
-        max_tokens=OPENAI_MAX_TOKENS,
+    _ensure_gemini_configured()
+    
+    model = genai.GenerativeModel(
+        model_name=GEMINI_MODEL,
+        system_instruction=_SYSTEM_PROMPT,
+        generation_config=genai.GenerationConfig(
+            temperature=GEMINI_TEMPERATURE,
+            max_output_tokens=GEMINI_MAX_TOKENS,
+        )
     )
-
-    raw_sql = response.choices[0].message.content.strip()
+    
+    response = model.generate_content(natural_query)
+    raw_sql = response.text.strip()
     return _tuner.tune(raw_sql)
 
 
@@ -575,14 +572,14 @@ def generate_sql(natural_query: str) -> dict:
     if not natural_query or not natural_query.strip():
         return {"error": "Query cannot be empty."}
 
-    api_key = os.getenv("OPENAI_API_KEY", "")
+    api_key = os.getenv("GEMINI_API_KEY", "")
     if api_key:
         try:
-            sql = _generate_with_openai(natural_query)
-            logger.info("SQL generated via OpenAI.")
-            return {"sql": sql, "method": "openai"}
+            sql = _generate_with_gemini(natural_query)
+            logger.info("SQL generated via Gemini.")
+            return {"sql": sql, "method": "gemini"}
         except Exception as exc:
-            logger.warning("OpenAI generation failed: %s. Falling back to rule-based.", exc)
+            logger.warning("Gemini generation failed: %s. Falling back to rule-based.", exc)
 
     try:
         sql = _rule_gen.generate(natural_query)
