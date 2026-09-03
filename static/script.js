@@ -202,11 +202,11 @@ function ValidationPanel({ sql }) {
 }
 
 // ─── Component: OutputCard ────────────────────────────────────────────────────
-function OutputCard({ sql, method, loading }) {
+function OutputCard({ sql, method, loading, explanation, onExplain, explaining, activeTab }) {
   const [copied, setCopied] = useState(false);
 
   // Reset copied state whenever the SQL changes
-  useEffect(() => { setCopied(false); }, [sql]);
+  useEffect(() => { setCopied(false); }, [sql, explanation]);
 
   const handleCopy = useCallback(async () => {
     if (!sql) return;
@@ -220,31 +220,28 @@ function OutputCard({ sql, method, loading }) {
     }
   }, [sql]);
 
-  const methodLabel = method === 'gemini' ? '✦ Gemini' : '⚙ Rule-based';
-  const methodClass = method === 'gemini' ? 'ai' : 'rule';
-
   // ── Empty / loading placeholder ──
-  if (!sql) {
+  if (!sql && !explanation) {
     return html`
-      <div class="card output-card" aria-label="Generated SQL output">
+      <div class="card output-card" aria-label="Output">
         <div class="card-header">
           <span class="card-label">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
               <path d="M4 6h8M4 10h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
-            Generated SQL
+            Output
           </span>
         </div>
         <div class="output-empty">
           ${loading
             ? html`
                 <div class="spinner" style=${{ width: '24px', height: '24px', borderWidth: '2.5px' }}></div>
-                <p class="empty-text" style=${{ marginTop: '12px' }}>Generating SQL…</p>
+                <p class="empty-text" style=${{ marginTop: '12px' }}>Processing…</p>
               `
             : html`
                 <div class="empty-icon">🗄️</div>
-                <p class="empty-text">Your SQL will appear here after generation.</p>
+                <p class="empty-text">Your result will appear here.</p>
               `
           }
         </div>
@@ -254,17 +251,14 @@ function OutputCard({ sql, method, loading }) {
 
   // ── Result state ──
   return html`
-    <div class="card output-card" aria-label="Generated SQL output">
+    <div class="card output-card" aria-label="Output">
       <div class="card-header">
         <span class="card-label">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/>
             <path d="M4 6h8M4 10h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
-          Generated SQL
-        </span>
-        <span class=${'method-pill ' + methodClass} aria-label="Generation method">
-          ${methodLabel}
+          Result
         </span>
       </div>
 
@@ -287,15 +281,39 @@ function OutputCard({ sql, method, loading }) {
           </button>
         </div>
 
-        <div class="sql-code">
-          <code
-            id="sqlOutput"
-            aria-label="Generated SQL query"
-            dangerouslySetInnerHTML=${{ __html: highlightSQL(sql) }}
-          ></code>
-        </div>
+        ${sql && activeTab === 'generate' ? html`
+          <div class="sql-result-body">
+            <div class="sql-code">
+              <code
+                id="sqlOutput"
+                aria-label="SQL query"
+                dangerouslySetInnerHTML=${{ __html: highlightSQL(sql) }}
+              ></code>
+            </div>
+            <${ValidationPanel} sql=${sql} />
+          </div>
+          
+          <div class="explain-section" style=${{ marginTop: '16px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <button 
+              class="btn btn-ghost" 
+              onClick=${onExplain} 
+              disabled=${explaining || explanation}
+              style=${{ width: '100%', justifyContent: 'center', display: explanation ? 'none' : 'flex' }}
+            >
+              ${explaining ? html`<div class="spinner"></div><span>Explaining…</span>` : '💡 Explain SQL'}
+            </button>
+          </div>
+        ` : null}
 
-        <${ValidationPanel} sql=${sql} />
+        ${explanation && html`
+          <div class="explanation-box" style=${{ marginTop: sql ? '16px' : '0', padding: '16px', background: 'var(--bg-subtle)', borderRadius: 'var(--r-md)', fontSize: '0.85rem', lineHeight: '1.6', border: '1px solid var(--border)' }}>
+            <h4 style=${{ margin: '0 0 10px 0', fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Explanation</h4>
+            <div 
+              class="explanation-content" 
+              dangerouslySetInnerHTML=${{ __html: typeof marked !== 'undefined' ? marked.parse(explanation) : escapeHtml(explanation).replace(/\n/g, '<br>') }}
+            ></div>
+          </div>
+        `}
       </div>
     </div>
   `;
@@ -374,10 +392,13 @@ function HistorySection({ history, onRestore }) {
  * History restore is received via `restoredEntry` prop.
  */
 function Workspace({ onAddHistory, restoredEntry }) {
+  const [activeTab, setActiveTab] = useState('generate');
   const [query,   setQuery]   = useState('');
   const [sql,     setSql]     = useState('');
+  const [explanation, setExplanation] = useState('');
   const [method,  setMethod]  = useState('');
   const [loading, setLoading] = useState(false);
+  const [explaining, setExplaining] = useState(false);
   const [error,   setError]   = useState('');
 
   const textareaRef = useRef(null);
@@ -400,44 +421,86 @@ function Workspace({ onAddHistory, restoredEntry }) {
   const generate = useCallback(async () => {
     const q = query.trim();
     if (!q) {
-      setError('Please enter a query before generating SQL.');
+      setError('Please enter text before proceeding.');
       return;
     }
     setError('');
     setLoading(true);
     setSql('');
+    setExplanation('');
     setMethod('');
 
     try {
-      const res  = await fetch(API_URL, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ query: q }),
-      });
-      const data = await res.json();
+      if (activeTab === 'generate') {
+        const res  = await fetch(API_URL, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ query: q }),
+        });
+        const data = await res.json();
 
-      if (!res.ok || data.error) {
-        throw new Error(data.error || `Server error (${res.status})`);
+        if (!res.ok || data.error) {
+          throw new Error(data.error || `Server error (${res.status})`);
+        }
+
+        const newSql    = data.sql    || '';
+        const newMethod = data.method || 'rule-based';
+
+        setSql(newSql);
+        setMethod(newMethod);
+        onAddHistory({ query: q, sql: newSql, method: newMethod });
+        showToast('SQL generated successfully', 'success');
+      } else {
+        const res = await fetch('/explain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sql: q }),
+        });
+        const data = await res.json();
+        
+        if (!res.ok || data.error) {
+          throw new Error(data.error || `Server error (${res.status})`);
+        }
+
+        setSql(q);
+        setExplanation(data.explanation);
+        showToast('SQL explained successfully', 'success');
       }
-
-      const newSql    = data.sql    || '';
-      const newMethod = data.method || 'rule-based';
-
-      setSql(newSql);
-      setMethod(newMethod);
-      onAddHistory({ query: q, sql: newSql, method: newMethod });
-      showToast('SQL generated successfully', 'success');
     } catch (err) {
-      setError(err.message || 'Failed to generate SQL. Please try again.');
-      showToast('Generation failed — try again', 'error');
+      setError(err.message || 'Action failed. Please try again.');
+      showToast('Action failed — try again', 'error');
     } finally {
       setLoading(false);
     }
-  }, [query, onAddHistory]);
+  }, [query, activeTab, onAddHistory]);
+
+  const handleExplainFromOutput = useCallback(async () => {
+    if (!sql) return;
+    setExplaining(true);
+    setExplanation('');
+    try {
+      const res = await fetch('/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `Server error (${res.status})`);
+      }
+      setExplanation(data.explanation);
+      showToast('SQL explained successfully', 'success');
+    } catch (err) {
+      showToast('Explanation failed', 'error');
+    } finally {
+      setExplaining(false);
+    }
+  }, [sql]);
 
   const clear = useCallback(() => {
     setQuery('');
     setSql('');
+    setExplanation('');
     setMethod('');
     setError('');
     if (textareaRef.current) textareaRef.current.focus();
@@ -450,56 +513,87 @@ function Workspace({ onAddHistory, restoredEntry }) {
   const len       = query.length;
   const charClass = len > 950 ? 'over' : len > 800 ? 'warn' : '';
 
+  const placeholderText = activeTab === 'generate'
+    ? 'Describe your query in plain English…\n\ne.g. Show all employees with salary greater than 50000'
+    : 'Paste your SQL query here to get a plain-English explanation…\n\ne.g. SELECT * FROM employees WHERE salary > 50000;';
+
+  const tabContent = html`
+    <div class="tabs" role="tablist">
+      <button 
+        class=${'tab ' + (activeTab === 'generate' ? 'active' : '')} 
+        role="tab" 
+        aria-selected=${activeTab === 'generate'} 
+        onClick=${() => { setActiveTab('generate'); clear(); }}
+      >
+        Generate SQL
+      </button>
+      <button 
+        class=${'tab ' + (activeTab === 'explain' ? 'active' : '')} 
+        role="tab" 
+        aria-selected=${activeTab === 'explain'} 
+        onClick=${() => { setActiveTab('explain'); clear(); }}
+      >
+        Explain SQL
+      </button>
+    </div>
+  `;
+
   return html`
     <div class="workspace">
 
       <!-- ── Input card ── -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-label">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M2 4h12M2 8h8M2 12h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-            Your Query
-          </span>
-        </div>
+      <div class="input-section">
+        ${tabContent}
+        <div class="card with-tabs">
+          <div class="card-header">
+            <span class="card-label">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M2 4h12M2 8h8M2 12h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              ${activeTab === 'generate' ? 'Your Query' : 'Your SQL'}
+            </span>
+          </div>
 
-        <div class="textarea-wrap">
-          <textarea
-            ref=${textareaRef}
-            id="queryInput"
-            class="query-textarea"
-            value=${query}
-            onInput=${(e) => { setQuery(e.target.value); setError(''); }}
-            onKeyDown=${handleKeyDown}
-            rows="7"
-            maxlength=${CHAR_LIMIT}
-            placeholder=${'Describe your query in plain English…\n\ne.g. Show all employees with salary greater than 50000'}
-            aria-label="Natural language SQL query input"
-            autocomplete="off"
-            spellcheck="true"
-          ></textarea>
-        </div>
+          <div class="textarea-wrap">
+            <textarea
+              ref=${textareaRef}
+              id="queryInput"
+              class="query-textarea"
+              value=${query}
+              onInput=${(e) => { setQuery(e.target.value); setError(''); }}
+              onKeyDown=${handleKeyDown}
+              rows="7"
+              maxlength=${CHAR_LIMIT}
+              placeholder=${placeholderText}
+              aria-label=${activeTab === 'generate' ? 'Natural language SQL query input' : 'SQL code input'}
+              autocomplete="off"
+              spellcheck="false"
+            ></textarea>
+          </div>
 
         <div class=${'char-count' + (charClass ? ' ' + charClass : '')} aria-live="polite">
           ${len} / ${CHAR_LIMIT}
         </div>
 
-        <p class="chips-label">Try an example:</p>
-        <div class="chips-row" role="list" aria-label="Example queries">
-          ${EXAMPLES.map(ex => html`
-            <button
-              key=${ex.label}
-              class="chip"
-              role="listitem"
-              onClick=${() => {
-                setQuery(ex.query);
-                setError('');
-                textareaRef.current && textareaRef.current.focus();
-              }}
-            >${ex.label}</button>
-          `)}
-        </div>
+        ${activeTab === 'generate' ? html`
+          <div class="examples-wrapper">
+            <p class="chips-label">Try an example:</p>
+            <div class="chips-row" role="list" aria-label="Example queries">
+              ${EXAMPLES.map(ex => html`
+                <button
+                  key=${ex.label}
+                  class="chip"
+                  role="listitem"
+                  onClick=${() => {
+                    setQuery(ex.query);
+                    setError('');
+                    textareaRef.current && textareaRef.current.focus();
+                  }}
+                >${ex.label}</button>
+              `)}
+            </div>
+          </div>
+        ` : null}
 
         <div class="btn-row">
           <button
@@ -507,12 +601,12 @@ function Workspace({ onAddHistory, restoredEntry }) {
             id="generateBtn"
             onClick=${generate}
             disabled=${loading}
-            aria-label="Generate SQL from input"
-            title="Generate SQL (Ctrl+Enter)"
+            aria-label=${activeTab === 'generate' ? 'Generate SQL from input' : 'Explain SQL from input'}
+            title=${(activeTab === 'generate' ? 'Generate SQL' : 'Explain SQL') + ' (Ctrl+Enter)'}
           >
             ${loading
-              ? html`<div class="spinner"></div><span>Generating…</span>`
-              : html`<span aria-hidden="true">⚡</span><span>Generate SQL</span>`
+              ? html`<div class="spinner"></div><span>${activeTab === 'generate' ? 'Generating…' : 'Explaining…'}</span>`
+              : html`<span aria-hidden="true">${activeTab === 'generate' ? '⚡' : '💡'}</span><span>${activeTab === 'generate' ? 'Generate SQL' : 'Explain SQL'}</span>`
             }
           </button>
           <button
@@ -535,10 +629,19 @@ function Workspace({ onAddHistory, restoredEntry }) {
             <span>${error}</span>
           </div>
         `}
+        </div>
       </div>
 
       <!-- ── Output card ── -->
-      <${OutputCard} sql=${sql} method=${method} loading=${loading} />
+      <${OutputCard} 
+        sql=${sql} 
+        method=${method} 
+        loading=${loading} 
+        explanation=${explanation} 
+        onExplain=${handleExplainFromOutput}
+        explaining=${explaining}
+        activeTab=${activeTab}
+      />
 
     </div>
   `;
@@ -604,37 +707,9 @@ function App() {
 
 // ─── Mount ────────────────────────────────────────────────────────────────────
 const rootEl = document.getElementById('root');
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null, info: null };
-  }
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error, info) {
-    console.error("ErrorBoundary caught an error", error, info);
-    this.setState({ info });
-  }
-  render() {
-    if (this.state.hasError) {
-      return html`
-        <div style=${{ padding: '20px', color: 'red', background: '#fee', margin: '20px', borderRadius: '8px', border: '1px solid red' }}>
-          <h2>UI Crash Detected</h2>
-          <p>Please share this error with the AI assistant so it can fix the bug:</p>
-          <pre style=${{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#fff', padding: '10px' }}>${this.state.error && this.state.error.toString()}</pre>
-          <pre style=${{ whiteSpace: 'pre-wrap', fontSize: '12px', background: '#fff', padding: '10px' }}>${this.state.info && this.state.info.componentStack}</pre>
-        </div>
-      `;
-    }
-    return this.props.children;
-  }
-}
-
-// Render the application with ErrorBoundary
-const root = ReactDOM.createRoot(document.getElementById('root'));
 if (rootEl) {
-  root.render(html`<${ErrorBoundary}><${App} /></${ErrorBoundary}>`);
+  const root = ReactDOM.createRoot(rootEl);
+  root.render(html`<${App} />`);
 } else {
   console.error('[AI SQL Assistant] #root element not found — cannot mount React app.');
 }

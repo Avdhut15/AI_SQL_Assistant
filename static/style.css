@@ -237,6 +237,75 @@ body {
 }
 
 /* ----------------------------------------------------------------
+   TABS
+   ---------------------------------------------------------------- */
+.tabs {
+  display: flex;
+  gap: 16px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  margin-bottom: -1px;
+}
+
+.tab {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 14px 4px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.8rem;
+  border-bottom: 2px solid transparent;
+  transition: all var(--t-fast);
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  color: var(--text-2);
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ----------------------------------------------------------------
+   MARKDOWN EXPLANATION
+   ---------------------------------------------------------------- */
+.explanation-content {
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.explanation-content p {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+.explanation-content p:last-child {
+  margin-bottom: 0;
+}
+.explanation-content ul, .explanation-content ol {
+  margin-top: 0;
+  margin-bottom: 12px;
+  padding-left: 20px;
+}
+.explanation-content li {
+  margin-bottom: 6px;
+}
+.explanation-content strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+.explanation-content code {
+  background: var(--bg-alt);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+}
+
+/* ----------------------------------------------------------------
    CARD
    ---------------------------------------------------------------- */
 .card {
@@ -245,6 +314,11 @@ body {
   border-radius: var(--r-lg);
   padding: 20px;
   transition: border-color var(--t-base);
+}
+
+.card.with-tabs {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .card:focus-within {

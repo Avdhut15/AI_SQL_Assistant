@@ -20,7 +20,8 @@ Output is post-processed by SQLOutputTuner which:
 import os
 import re
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -222,14 +223,15 @@ _tuner = SQLOutputTuner()
 # ---------------------------------------------------------------------------
 
 _gemini_configured = False
+_gemini_client = None
 
 def _ensure_gemini_configured():
-    global _gemini_configured
+    global _gemini_configured, _gemini_client
     if not _gemini_configured:
         api_key = os.getenv("GEMINI_API_KEY", "")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable is not set.")
-        genai.configure(api_key=api_key)
+        _gemini_client = genai.Client(api_key=api_key)
         _gemini_configured = True
 
 
@@ -248,6 +250,16 @@ _SYSTEM_PROMPT = (
     "  7. For ambiguous queries prefer a safe SELECT over destructive statements.\n"
 )
 
+_EXPLAIN_PROMPT = (
+    "You are an expert SQL instructor. "
+    "Explain the following SQL query in simple, plain English.\n"
+    "Rules:\n"
+    "  1. Use bullet points.\n"
+    "  2. Keep it very simple, easy to read, and concise.\n"
+    "  3. Do not include heavy technical jargon.\n"
+    "  4. Output ONLY the explanation."
+)
+
 
 def _generate_with_gemini(natural_query: str) -> str:
     """
@@ -256,16 +268,16 @@ def _generate_with_gemini(natural_query: str) -> str:
     """
     _ensure_gemini_configured()
     
-    model = genai.GenerativeModel(
-        model_name=GEMINI_MODEL,
-        system_instruction=_SYSTEM_PROMPT,
-        generation_config=genai.GenerationConfig(
+    response = _gemini_client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=natural_query,
+        config=types.GenerateContentConfig(
+            system_instruction=_SYSTEM_PROMPT,
             temperature=GEMINI_TEMPERATURE,
             max_output_tokens=GEMINI_MAX_TOKENS,
-        )
+        ),
     )
     
-    response = model.generate_content(natural_query)
     raw_sql = response.text.strip()
     return _tuner.tune(raw_sql)
 
@@ -588,3 +600,34 @@ def generate_sql(natural_query: str) -> dict:
     except Exception as exc:
         logger.error("Rule-based generation failed: %s", exc)
         return {"error": f"SQL generation failed: {exc}"}
+
+def explain_sql(sql: str) -> dict:
+    """
+    Explain SQL using Gemini or return a generic rule-based response.
+    """
+    if not sql or not sql.strip():
+        return {"error": "SQL cannot be empty."}
+
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if api_key:
+        try:
+            _ensure_gemini_configured()
+            response = _gemini_client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=sql,
+                config=types.GenerateContentConfig(
+                    system_instruction=_EXPLAIN_PROMPT,
+                    temperature=GEMINI_TEMPERATURE,
+                    max_output_tokens=GEMINI_MAX_TOKENS,
+                ),
+            )
+            logger.info("SQL explained via Gemini.")
+            return {"explanation": response.text.strip(), "method": "gemini"}
+        except Exception as exc:
+            logger.warning("Gemini explanation failed: %s. Falling back to rule-based.", exc)
+
+    logger.info("SQL explained via rule-based engine.")
+    return {
+        "explanation": "• This query retrieves data based on the selected columns.\n• It filters the results according to the WHERE clause.\n• It might sort or group the results depending on the clauses provided.",
+        "method": "rule-based"
+    }

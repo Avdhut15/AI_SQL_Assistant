@@ -10,7 +10,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from dotenv import load_dotenv
-from services.sql_generator import generate_sql
+from services.sql_generator import generate_sql, explain_sql
 
 # Load environment variables from .env (no-op if the file is absent)
 load_dotenv()
@@ -78,6 +78,36 @@ def generate():
 
     except Exception as exc:
         logger.exception("Unexpected error in /generate endpoint.")
+        return jsonify({"error": f"Internal server error: {str(exc)}"}), 500
+
+
+@app.route("/explain", methods=["POST"])
+def explain():
+    """
+    POST /explain
+    Body:    { "sql": "<SQL statement>" }
+    Returns: { "explanation": "<explanation string>", "method": "gemini|rule-based" }
+          or { "error": "<error message>" }
+    """
+    try:
+        data = request.get_json(force=True, silent=True)
+        if not data:
+            return jsonify({"error": "Request body must be valid JSON."}), 400
+
+        sql = data.get("sql", "").strip()
+        if not sql:
+            return jsonify({"error": "The 'sql' field is required and cannot be empty."}), 400
+
+        result = explain_sql(sql)
+
+        if "error" in result:
+            return jsonify(result), 422
+
+        logger.info("Explained SQL [%s]", result.get("method"))
+        return jsonify(result), 200
+
+    except Exception as exc:
+        logger.exception("Unexpected error in /explain endpoint.")
         return jsonify({"error": f"Internal server error: {str(exc)}"}), 500
 
 

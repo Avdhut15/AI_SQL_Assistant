@@ -2,9 +2,11 @@
 
 > Convert plain English into executable SQL queries — instantly.
 
+![Preview](screenshots/preview.png)
+
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python)](https://python.org)
 [![Flask](https://img.shields.io/badge/Flask-3.0-black?logo=flask)](https://flask.palletsprojects.com)
-[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-gemini--3.1--flash--lite-blue?logo=googlegemini)](https://deepmind.google/technologies/gemini/)
+[![Google Gemini](https://img.shields.io/badge/Google%20GenAI-gemini--3.1--flash--lite-blue?logo=googlegemini)](https://deepmind.google/technologies/gemini/)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 ---
@@ -14,6 +16,7 @@
 | Feature | Description |
 |---|---|
 | 🤖 AI Generation | Google Gemini `gemini-3.1-flash-lite` converts English → SQL |
+| 💡 SQL Explanation | Breaks down complex SQL queries into plain-English steps |
 | ⚙️ Offline Fallback | Rule-based engine when no API key is set |
 | 🎨 Syntax Highlighting | Color-coded SQL output |
 | ✅ SQL Validation | Checks keywords, semicolons, clauses |
@@ -95,6 +98,16 @@ AI_SQL_Assistant/
 { "sql": "SELECT *\n    FROM customers\n    WHERE city = 'Pune';", "method": "gemini" }
 ```
 
+### `POST /explain`
+
+```json
+// Request
+{ "sql": "SELECT * FROM customers WHERE city = 'Pune';" }
+
+// Response
+{ "explanation": "This query retrieves all data from the customers table where the city is Pune.", "method": "gemini" }
+```
+
 ### `GET /health`
 
 ```json
@@ -119,7 +132,7 @@ Find average salary by department
 ## 🛠️ Tech Stack
 
 - **Backend:** Python · Flask · Flask-CORS · python-dotenv
-- **AI:** Google Gemini `gemini-3.1-flash-lite` · Rule-based NLP fallback
-- **Frontend:** Vanilla HTML · CSS · JavaScript
+- **AI:** Google GenAI SDK (`google-genai`) · Gemini `gemini-3.1-flash-lite` · NLP fallback
+- **Frontend:** React 18 (via `htm`) · Markdown Parsing (`marked.js`) · Vanilla CSS
 - **Design:** Refined dark theme · Green / Grey / Black · JetBrains Mono · Inter
 
